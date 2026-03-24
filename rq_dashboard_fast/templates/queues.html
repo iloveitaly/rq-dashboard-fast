@@ -187,6 +187,8 @@
   }
 
   function deleteJobsInQueue(queue_name, btn) {
+    var decoded = decodeURIComponent(queue_name);
+    if (!confirm('Clear all jobs in queue "' + decoded + '"?\n\nThis will permanently remove all jobs in every state (pending, running, finished, failed, deferred, canceled).\n\nJobs scheduled via Cron will not be affected.')) return;
     setBtnLoading(btn);
     fetch(baseurl + '/queues/' + queue_name, { method: 'DELETE', headers: {'X-CSRF-Token': getCsrfToken()} })
       .then(function(r) {

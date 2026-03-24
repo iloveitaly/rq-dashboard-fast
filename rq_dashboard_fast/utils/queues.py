@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from redis import Redis
 from rq import Queue
+from rq.job import Job
 
 from rq_dashboard_fast.utils.auth import queue_allowed
 
@@ -75,12 +76,33 @@ def get_job_registry_amount(
 def delete_jobs_for_queue(queue_name, redis_url) -> list[str]:
     try:
         redis = Redis.from_url(redis_url)
-
         queue = Queue(queue_name, connection=redis)
 
-        result = queue.empty()
+        registries = [
+            queue.finished_job_registry,
+            queue.started_job_registry,
+            queue.failed_job_registry,
+            queue.deferred_job_registry,
+            queue.canceled_job_registry,
+            queue.scheduled_job_registry,
+        ]
 
-        return result
+        all_job_ids = list(queue.get_job_ids())
+        for registry in registries:
+            all_job_ids.extend(registry.get_job_ids())
+
+        pipe = redis.pipeline()
+        for job_id in all_job_ids:
+            job_key = Job.redis_job_namespace_prefix + job_id
+            pipe.delete(job_key)
+            pipe.delete(job_key + ":dependents")
+            pipe.delete(job_key + ":dependencies")
+        for registry in registries:
+            pipe.delete(registry.key)
+        pipe.delete(queue.key)
+        pipe.execute()
+
+        return all_job_ids
     except Exception as error:
         logger.exception("Error deleting jobs in queue: %s", error)
         raise HTTPException(status_code=500, detail=str("Error deleting jobs in queue"))
