@@ -1,5 +1,7 @@
 # Authentication & Authorization
 
+> For information on how scheduled and recurring jobs are displayed in the dashboard, see [scheduling.md](scheduling.md).
+
 RQ Dashboard FastAPI supports opt-in, token-based authentication with per-queue access control. When no auth config is provided, the dashboard runs with open access (the default behavior).
 
 ## Quick Start
@@ -70,6 +72,8 @@ tokens:
     title: "Email Team Dashboard"  # custom page title (optional)
     allow_workers: false         # hide workers page (default: true)
     allow_export: false          # hide export page (default: true)
+    allow_schedulers: false      # hide schedulers page (default: true)
+    schedulers: ["email-cron"]   # which scheduler names to show (default: ["*"])
 
   - hash: "a1b2c3d..."
     queues: ["*"]                # wildcard — access to all queues
@@ -86,6 +90,8 @@ tokens:
 | `title` | No | Custom title shown in the header and the browser tab. |
 | `allow_workers` | No | `true` or `false`. When `false`, the Workers page and worker export are disabled (returns 403) and the nav link is hidden. Defaults to `true`. |
 | `allow_export` | No | `true` or `false`. When `false`, the Export page and all export endpoints are disabled (returns 403) and the nav link is hidden. Defaults to `true`. |
+| `allow_schedulers` | No | `true` or `false`. When `false`, the Schedulers page is disabled (returns 403) and the nav link is hidden. Defaults to `true`. |
+| `schedulers` | No | List of CronScheduler names this token can see. Use `["*"]` for all schedulers. Defaults to `["*"]`. |
 | `hide_meta` | No | `true` or `false`. When `true`, the job metadata section is hidden on the job detail page. Useful for preventing exposure of internal metadata to scoped users. Defaults to `false`. |
 
 ### Access Levels
@@ -152,6 +158,18 @@ tokens:
 ```
 
 The token can view jobs and queues for `emails` only. The Workers and Export nav links are hidden, and direct access to those pages returns 403.
+
+### Scoped access to a specific scheduler
+
+```yaml
+tokens:
+  - hash: "1111abcd..."
+    queues: ["emails"]
+    schedulers: ["email-cron"]   # only see the email-cron scheduler
+    access: read
+```
+
+The token sees only the `emails` queue and only the `email-cron` CronScheduler. Other schedulers are hidden.
 
 ### Admin with full access
 

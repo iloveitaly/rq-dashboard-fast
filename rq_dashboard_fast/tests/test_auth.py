@@ -19,6 +19,7 @@ from rq_dashboard_fast.utils.auth import (
     generate_token_pair,
     hash_token,
     queue_allowed,
+    scheduler_visible,
     worker_visible,
 )
 
@@ -403,6 +404,20 @@ class TestCustomTitle:
 # ---------------------------------------------------------------------------
 
 
+class TestSchedulerVisible:
+    def test_wildcard_allows_all(self):
+        assert scheduler_visible("any-scheduler", ["*"]) is True
+
+    def test_explicit_match(self):
+        assert scheduler_visible("email-cron", ["email-cron", "payment-cron"]) is True
+
+    def test_no_match(self):
+        assert scheduler_visible("other-cron", ["email-cron"]) is False
+
+    def test_empty_list(self):
+        assert scheduler_visible("email-cron", []) is False
+
+
 class TestWorkerVisible:
     def test_wildcard_allows_all(self):
         assert worker_visible(["emails", "payments"], ["*"]) is True
@@ -423,6 +438,43 @@ class TestWorkerVisible:
 # ---------------------------------------------------------------------------
 # allow_workers / allow_export config parsing
 # ---------------------------------------------------------------------------
+
+
+class TestAllowSchedulersConfig:
+    """Config parsing and defaults for allow_schedulers / schedulers."""
+
+    def test_defaults_to_true_and_wildcard(self):
+        token, token_hash = generate_token_pair()
+        config_path = _make_auth_yaml(
+            [{"hash": token_hash, "queues": ["*"], "access": "admin"}]
+        )
+        config = AuthConfig(config_path)
+        entry = config.resolve_hash(token_hash)
+        assert entry["allow_schedulers"] is True
+        assert entry["schedulers"] == ["*"]
+
+    def test_explicit_false_and_named_schedulers(self):
+        token, token_hash = generate_token_pair()
+        config_path = _make_auth_yaml(
+            [
+                {
+                    "hash": token_hash,
+                    "queues": ["emails"],
+                    "access": "read",
+                    "allow_schedulers": False,
+                    "schedulers": ["email-cron"],
+                }
+            ]
+        )
+        config = AuthConfig(config_path)
+        entry = config.resolve_hash(token_hash)
+        assert entry["allow_schedulers"] is False
+        assert entry["schedulers"] == ["email-cron"]
+
+    def test_permissions_model_defaults(self):
+        p = TokenPermissions()
+        assert p.allow_schedulers is True
+        assert p.schedulers == ["*"]
 
 
 class TestAllowWorkersExportConfig:
@@ -532,6 +584,29 @@ class TestPageAccessFlags:
         )
         response = client.get("/export/jobs")
         assert response.status_code == 403
+
+    def test_schedulers_page_blocked(self):
+        token, token_hash = generate_token_pair()
+        client = self._get_authenticated_client(
+            token, token_hash, {"allow_schedulers": False}
+        )
+        response = client.get("/schedulers")
+        assert response.status_code == 403
+
+    def test_schedulers_json_blocked(self):
+        token, token_hash = generate_token_pair()
+        client = self._get_authenticated_client(
+            token, token_hash, {"allow_schedulers": False}
+        )
+        response = client.get("/schedulers/json")
+        assert response.status_code == 403
+
+    def test_schedulers_allowed_by_default(self):
+        token, token_hash = generate_token_pair()
+        client = self._get_authenticated_client(token, token_hash)
+        # Will 500 (no Redis) but should NOT be 403
+        response = client.get("/schedulers")
+        assert response.status_code != 403
 
     def test_workers_allowed_by_default(self):
         token, token_hash = generate_token_pair()

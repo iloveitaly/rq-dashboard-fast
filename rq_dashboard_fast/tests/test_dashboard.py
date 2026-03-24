@@ -139,3 +139,14 @@ def test_export_workers(client):
 def test_export_jobs(client):
     response_export_jobs = client.get("export/jobs")
     assert response_export_jobs.status_code == 200
+
+
+def test_get_schedulers(client):
+    response = client.get("/schedulers")
+    assert response.status_code == 200
+
+
+def test_get_schedulers_json(client):
+    response = client.get("/schedulers/json")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)

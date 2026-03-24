@@ -1,7 +1,8 @@
+from datetime import timedelta
+
 import pytest
 from redis import Redis
 from rq import Queue
-from rq_scheduler import Scheduler
 
 from ..utils.jobs import (
     JobData,
@@ -22,12 +23,6 @@ def setup_redis():
 
 
 @pytest.fixture
-def setup_scheduler(setup_redis):
-    scheduler = Scheduler(connection=setup_redis)
-    yield scheduler
-
-
-@pytest.fixture
 def setup_queue(setup_redis):
     queue = Queue(connection=setup_redis)
     yield queue
@@ -37,7 +32,7 @@ def example_task():
     return "Hello World"
 
 
-def test_get_job_registrys(setup_redis, setup_scheduler, setup_queue):
+def test_get_job_registrys(setup_redis, setup_queue):
     redis_url = "redis://redis:6379"
     job_name = "test_job"
     job = setup_queue.enqueue(example_task, description=job_name)
@@ -51,7 +46,7 @@ def test_get_job_registrys(setup_redis, setup_scheduler, setup_queue):
     )
 
 
-def test_get_jobs(setup_redis, setup_scheduler, setup_queue):
+def test_get_jobs(setup_redis, setup_queue):
     redis_url = "redis://redis:6379"
     job_name = "test_job1"
     job = setup_queue.enqueue(example_task, description=job_name)
@@ -83,6 +78,21 @@ def test_delete_job_id(setup_redis, setup_queue):
     delete_job_id(redis_url, job.id)
 
     assert not setup_queue.fetch_job(job.id)
+
+
+def test_scheduled_job_appears_in_scheduled_list(setup_redis, setup_queue):
+    """Jobs enqueued with enqueue_in should appear in the scheduled list, not be dropped."""
+    redis_url = "redis://redis:6379"
+    job_name = "test_scheduled_job"
+    setup_queue.enqueue_in(timedelta(hours=1), example_task, description=job_name)
+
+    jobs = get_jobs(redis_url, state="scheduled")
+
+    assert any(
+        job_data.name == job_name
+        for queue_job in jobs.data
+        for job_data in queue_job.scheduled
+    )
 
 
 def test_convert_queue_job_registry_stats_to_json_dict():

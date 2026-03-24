@@ -8,7 +8,6 @@ from redis import Redis
 from rq.exceptions import InvalidJobOperation
 from rq.job import Job
 from rq.utils import as_text
-from rq_scheduler import Scheduler
 
 from .auth import queue_allowed
 from .queues import get_queues
@@ -69,7 +68,6 @@ def get_job_registrys(
 ) -> PaginatedJobResponse:
     try:
         redis = Redis.from_url(redis_url)
-        scheduler = Scheduler(connection=redis)
         queues = get_queues(redis_url)
         result = []
         total = 0
@@ -141,25 +139,13 @@ def get_job_registrys(
                     total += len(stopped_ids)
                     job_ids = stopped_ids[start_index:end_index]
 
-                scheduled_jobs = []
-                scheduled = scheduler.get_jobs()
-
-                for job in scheduled:
-                    if job.origin == queue.name and job.id not in scheduled_jobs:
-                        scheduled_jobs.append(
-                            JobData(
-                                id=job.id,
-                                name=job.description,
-                                created_at=job.created_at,
-                            )
-                        )
-
                 jobs_fetched = Job.fetch_many(job_ids, connection=redis)
                 started_jobs = []
                 failed_jobs = []
                 deferred_jobs = []
                 finished_jobs = []
                 queued_jobs = []
+                scheduled_jobs = []
                 canceled_jobs = []
                 stopped_jobs = []
 
@@ -188,6 +174,8 @@ def get_job_registrys(
                         finished_jobs.append(job_data_item)
                     elif status == "queued":
                         queued_jobs.append(job_data_item)
+                    elif status == "scheduled":
+                        scheduled_jobs.append(job_data_item)
                     elif status == "canceled":
                         canceled_jobs.append(job_data_item)
                     elif status == "stopped":

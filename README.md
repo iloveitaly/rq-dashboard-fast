@@ -81,6 +81,12 @@ rq-dashboard-fast --auth-config auth.yaml # start with auth enabled
 
 See the full documentation in [docs/authentication.md](docs/authentication.md).
 
+## Scheduled & Recurring Jobs
+
+The dashboard displays both one-off future-scheduled jobs (via `queue.enqueue_at()` / `queue.enqueue_in()`) and recurring cron jobs (via `CronScheduler`). Each appears in a different part of the UI.
+
+See [docs/scheduling.md](docs/scheduling.md) for a full explanation.
+
 ## Running in Docker
 
 1. You can run the RQ Dashboard FastAPI as a Docker container with custom Redis URL:

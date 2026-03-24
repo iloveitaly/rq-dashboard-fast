@@ -22,6 +22,8 @@ class TokenPermissions(BaseModel):
     csrf_token: Optional[str] = None
     allow_workers: bool = True
     allow_export: bool = True
+    allow_schedulers: bool = True
+    schedulers: list[str] = ["*"]
     hide_meta: bool = False
 
 
@@ -63,6 +65,8 @@ class AuthConfig:
                 "title": entry.get("title"),
                 "allow_workers": entry.get("allow_workers", True),
                 "allow_export": entry.get("allow_export", True),
+                "allow_schedulers": entry.get("allow_schedulers", True),
+                "schedulers": entry.get("schedulers", ["*"]),
                 "hide_meta": entry.get("hide_meta", False),
             }
 
@@ -101,3 +105,10 @@ def worker_visible(worker_queues: list[str], allowed_queues: list[str]) -> bool:
     if "*" in allowed_queues:
         return True
     return bool(set(worker_queues) & set(allowed_queues))
+
+
+def scheduler_visible(scheduler_name: str, allowed_schedulers: list[str]) -> bool:
+    """Return True if a scheduler name is in the allowed list."""
+    if "*" in allowed_schedulers:
+        return True
+    return scheduler_name in allowed_schedulers

@@ -1,0 +1,227 @@
+{% extends "base.html" %}{% block content %}
+<script>
+  let autoRefreshInterval = null;
+  const protocol = "{{ protocol }}";
+  const host = window.location.host;
+  const prefix = "{{ prefix }}";
+  const baseurl = protocol + "://" + host + prefix;
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function timeAgo(dateStr) {
+    if (!dateStr) return '—';
+    var date = new Date(dateStr);
+    var now = new Date();
+    var seconds = Math.floor((now - date) / 1000);
+    if (seconds < 60) return seconds + 's ago';
+    var minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return minutes + 'm ago';
+    var hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + 'h ago';
+    var days = Math.floor(hours / 24);
+    if (days < 30) return days + 'd ago';
+    return date.toLocaleString();
+  }
+
+  function timeFromNow(dateStr) {
+    if (!dateStr) return '—';
+    var date = new Date(dateStr);
+    var now = new Date();
+    var seconds = Math.floor((date - now) / 1000);
+    if (seconds <= 0) return 'now';
+    if (seconds < 60) return 'in ' + seconds + 's';
+    var minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return 'in ' + minutes + 'm';
+    var hours = Math.floor(minutes / 60);
+    if (hours < 24) return 'in ' + hours + 'h';
+    return date.toLocaleString();
+  }
+
+  function formatSchedule(job) {
+    if (job.cron) return escapeHtml(job.cron);
+    if (job.interval) return 'every ' + job.interval + 's';
+    return '—';
+  }
+
+  function showNotification(message) {
+    var notification = document.createElement('div');
+    notification.className = 'notification';
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    setTimeout(function () { document.body.removeChild(notification); }, 3000);
+  }
+
+  function showErrorNotification(message) {
+    var notification = document.createElement('div');
+    notification.className = 'error-notification';
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    setTimeout(function () { document.body.removeChild(notification); }, 3000);
+  }
+
+  function startAutorefresh() {
+    clearInterval(autoRefreshInterval);
+    autoRefreshInterval = setInterval(function () { if (window.autoRefreshEnabled) updateData(); }, 5000);
+  }
+
+  function stopAutorefresh() {
+    clearInterval(autoRefreshInterval);
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.autoRefreshEnabled) { startAutorefresh(); }
+  });
+
+  document.addEventListener('autorefresh-changed', function (e) {
+    if (e.detail.enabled) {
+      startAutorefresh();
+      showNotification('Autorefresh enabled');
+    } else {
+      stopAutorefresh();
+      showNotification('Autorefresh disabled');
+    }
+  });
+
+  function updateData() {
+    fetch(baseurl + '/schedulers/json')
+      .then(function (r) { return r.json(); })
+      .then(function (data) { renderSchedulers(data); })
+      .catch(function (error) {
+        console.error('Error fetching schedulers data: ', error);
+        showErrorNotification('Error fetching schedulers data');
+      });
+  }
+
+  function renderSchedulers(schedulers) {
+    var container = document.getElementById('schedulers-container');
+    if (schedulers.length === 0) {
+      container.innerHTML = '<p class="text-gray-500 dark:text-gray-400 mt-8 text-center text-sm">No active CronSchedulers found.</p>';
+      return;
+    }
+
+    var html = '';
+    schedulers.forEach(function (s) {
+      var statusBadge = s.is_stale
+        ? '<span class="badge-stopped">stale</span>'
+        : '<span class="badge-finished">active</span>';
+      var heartbeat = s.last_heartbeat ? timeAgo(s.last_heartbeat) : '—';
+      var created = timeAgo(s.created_at);
+      var configFile = s.config_file ? escapeHtml(s.config_file) : '<span class="text-gray-400 dark:text-gray-500">—</span>';
+
+      var jobRows = '';
+      if (s.jobs && s.jobs.length > 0) {
+        s.jobs.forEach(function (job) {
+          jobRows +=
+            '<tr class="tr-stripe">' +
+            '<td class="td-cell font-mono text-xs">' + escapeHtml(job.func_name) + '</td>' +
+            '<td class="td-cell">' + escapeHtml(job.queue_name) + '</td>' +
+            '<td class="td-cell font-mono text-xs">' + formatSchedule(job) + '</td>' +
+            '<td class="td-cell text-xs" title="' + escapeHtml(job.next_enqueue_time) + '">' + timeFromNow(job.next_enqueue_time) + '</td>' +
+            '<td class="td-cell text-xs" title="' + escapeHtml(job.latest_enqueue_time) + '">' + (job.latest_enqueue_time ? timeAgo(job.latest_enqueue_time) : '<span class="text-gray-400 dark:text-gray-500">never</span>') + '</td>' +
+            '</tr>';
+        });
+      } else {
+        jobRows = '<tr><td colspan="5" class="td-cell text-center text-gray-400 dark:text-gray-500 text-xs py-4">No registered jobs</td></tr>';
+      }
+
+      html +=
+        '<div class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden bg-white dark:bg-gray-900">' +
+          '<div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">' +
+            '<div class="flex items-center gap-3">' +
+              statusBadge +
+              '<span class="font-semibold text-gray-900 dark:text-gray-100">' + escapeHtml(s.name) + '</span>' +
+            '</div>' +
+            '<div class="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">' +
+              '<span>' + escapeHtml(s.hostname) + ':' + s.pid + '</span>' +
+              '<span title="Last heartbeat">&#9829; ' + heartbeat + '</span>' +
+              '<span title="Started">Started ' + created + '</span>' +
+            '</div>' +
+          '</div>' +
+          (s.config_file ? '<div class="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">Config: <span class="font-mono">' + configFile + '</span></div>' : '') +
+          '<table class="data-table">' +
+            '<thead><tr>' +
+              '<th class="th-cell">Function</th>' +
+              '<th class="th-cell">Queue</th>' +
+              '<th class="th-cell">Schedule</th>' +
+              '<th class="th-cell">Next run</th>' +
+              '<th class="th-cell">Last run</th>' +
+            '</tr></thead>' +
+            '<tbody>' + jobRows + '</tbody>' +
+          '</table>' +
+        '</div>';
+    });
+
+    container.innerHTML = html;
+  }
+</script>
+
+<div class="max-w-[90%] mx-auto mt-6 px-4">
+  <div id="schedulers-container">
+    {% if scheduler_data %}
+      {% for s in scheduler_data %}
+      <div class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden bg-white dark:bg-gray-900">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+          <div class="flex items-center gap-3">
+            {% if s.is_stale %}
+            <span class="badge-stopped">stale</span>
+            {% else %}
+            <span class="badge-finished">active</span>
+            {% endif %}
+            <span class="font-semibold text-gray-900 dark:text-gray-100">{{ s.name }}</span>
+          </div>
+          <div class="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+            <span>{{ s.hostname }}:{{ s.pid }}</span>
+            <span title="Last heartbeat">&#9829; {{ s.last_heartbeat.strftime('%Y-%m-%d %H:%M:%S UTC') if s.last_heartbeat else '—' }}</span>
+            <span title="Started">Started {{ s.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</span>
+          </div>
+        </div>
+        {% if s.config_file %}
+        <div class="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
+          Config: <span class="font-mono">{{ s.config_file }}</span>
+        </div>
+        {% endif %}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th class="th-cell">Function</th>
+              <th class="th-cell">Queue</th>
+              <th class="th-cell">Schedule</th>
+              <th class="th-cell">Next run</th>
+              <th class="th-cell">Last run</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if s.jobs %}
+              {% for job in s.jobs %}
+              <tr class="tr-stripe">
+                <td class="td-cell font-mono text-xs">{{ job.func_name }}</td>
+                <td class="td-cell">{{ job.queue_name }}</td>
+                <td class="td-cell font-mono text-xs">
+                  {% if job.cron %}{{ job.cron }}{% elif job.interval %}every {{ job.interval }}s{% else %}—{% endif %}
+                </td>
+                <td class="td-cell text-xs" title="{{ job.next_enqueue_time }}">
+                  {{ job.next_enqueue_time.strftime('%Y-%m-%d %H:%M:%S UTC') if job.next_enqueue_time else '—' }}
+                </td>
+                <td class="td-cell text-xs" title="{{ job.latest_enqueue_time }}">
+                  {{ job.latest_enqueue_time.strftime('%Y-%m-%d %H:%M:%S UTC') if job.latest_enqueue_time else 'never' }}
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="5" class="td-cell text-center text-gray-400 dark:text-gray-500 text-xs py-4">No registered jobs</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="text-gray-500 dark:text-gray-400 mt-8 text-center text-sm">No active CronSchedulers found.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

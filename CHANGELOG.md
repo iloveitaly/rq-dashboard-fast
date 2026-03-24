@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-23
+
+### Added
+- Schedulers page (`/schedulers`) showing all active `CronScheduler` daemon instances (RQ 2.6+). Each card displays the scheduler name, hostname, PID, last heartbeat with active/stale badge, config file path, and a table of all registered cron jobs with their function name, queue, schedule (cron expression or interval), next run time, and last run time. Autorefresh every 5 seconds via `/schedulers/json`.
+- `allow_schedulers` auth config option — set to `false` to hide the Schedulers page and nav link for a token (default: `true`).
+- `schedulers` auth config option — list of CronScheduler names a token can see. Supports `["*"]` wildcard (default). Example: `schedulers: ["email-cron"]`.
+- `scheduler_visible()` auth utility function, mirroring `worker_visible()`.
+- `docs/scheduling.md` — explains the two scheduling mechanisms (one-off `enqueue_at`/`enqueue_in` vs recurring `CronScheduler`), where each appears in the dashboard, and a migration guide from the old `rq-scheduler` package.
+
+### Fixed
+- Native RQ scheduled jobs (created with `queue.enqueue_at()` / `queue.enqueue_in()`) were silently dropped and never shown in the Jobs page. The classification loop in `get_job_registrys` was missing an `elif status == "scheduled"` branch. These jobs now correctly appear under the `scheduled` filter.
+
+### Changed
+- Minimum RQ version bumped from `>=1.15.1` to `>=2.6.0` to support `CronScheduler.all()`.
+
+### Removed
+- Dependency on the third-party `rq-scheduler` package (`rq_scheduler`). The dashboard now relies entirely on RQ's native `ScheduledJobRegistry` and `CronScheduler`. Users still running the old `rq-scheduler` daemon should migrate to `queue.enqueue_at()` / `queue.enqueue_in()` for one-off scheduled jobs, or `CronScheduler` for recurring jobs. See `docs/scheduling.md`.
+
 ## [0.8.1] - 2026-03-19
 
 ### Added

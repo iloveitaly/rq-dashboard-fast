@@ -29,6 +29,10 @@ from rq_dashboard_fast.utils.auth import (
     queue_allowed,
     worker_visible,
 )
+from rq_dashboard_fast.utils.schedulers import (
+    SchedulerData,
+    get_schedulers,
+)
 from rq_dashboard_fast.utils.jobs import (
     JobDataDetailed,
     PaginatedJobResponse,
@@ -91,7 +95,7 @@ class RedisQueueDashboard(FastAPI):
         self.protocol = protocol
         self.auth = AuthConfig(auth_config)
 
-        self.rq_dashboard_version = "0.8.1"
+        self.rq_dashboard_version = "0.9.0"
 
         logger = logging.getLogger(__name__)
 
@@ -170,6 +174,8 @@ class RedisQueueDashboard(FastAPI):
                         csrf_token=csrf,
                         allow_workers=entry.get("allow_workers", True),
                         allow_export=entry.get("allow_export", True),
+                        allow_schedulers=entry.get("allow_schedulers", True),
+                        schedulers=entry.get("schedulers", ["*"]),
                         hide_meta=entry.get("hide_meta", False),
                     )
                     return await call_next(request)
@@ -184,8 +190,9 @@ class RedisQueueDashboard(FastAPI):
         @self.get("/login", response_class=HTMLResponse)
         async def login_page(request: Request, error: str = Query(None)):
             return self.templates.TemplateResponse(
+                request,
                 "login.html",
-                {"request": request, "prefix": prefix, "error": error},
+                context={"prefix": prefix, "error": error},
             )
 
         # --- Template context helper ---
@@ -193,7 +200,6 @@ class RedisQueueDashboard(FastAPI):
             perms = _get_permissions(request)
             protocol_val = self.protocol if self.protocol else request.url.scheme
             base = {
-                "request": request,
                 "prefix": prefix,
                 "rq_dashboard_version": self.rq_dashboard_version,
                 "protocol": protocol_val,
@@ -203,6 +209,7 @@ class RedisQueueDashboard(FastAPI):
                 "auth_enabled": self.auth.enabled,
                 "allow_workers": perms.allow_workers,
                 "allow_export": perms.allow_export,
+                "allow_schedulers": perms.allow_schedulers,
                 "hide_meta": perms.hide_meta,
             }
             base.update(extra)
@@ -228,8 +235,9 @@ class RedisQueueDashboard(FastAPI):
                 )
 
                 return self.templates.TemplateResponse(
+                    request,
                     "jobs.html",
-                    _ctx(
+                    context=_ctx(
                         request,
                         {
                             "job_data": paginated.data,
@@ -264,8 +272,9 @@ class RedisQueueDashboard(FastAPI):
                 ]
 
                 return self.templates.TemplateResponse(
+                    request,
                     "workers.html",
-                    _ctx(
+                    context=_ctx(
                         request,
                         {
                             "worker_data": worker_data,
@@ -304,6 +313,62 @@ class RedisQueueDashboard(FastAPI):
                     detail="An error occurred while reading worker data in json",
                 )
 
+        @self.get("/schedulers", response_class=HTMLResponse)
+        async def read_schedulers(request: Request):
+            try:
+                perms = _get_permissions(request)
+                if self.auth.enabled and not perms.allow_schedulers:
+                    raise HTTPException(
+                        status_code=403, detail="Schedulers page disabled"
+                    )
+                scheduler_data = get_schedulers(
+                    self.redis_url,
+                    allowed_schedulers=perms.schedulers,
+                )
+
+                return self.templates.TemplateResponse(
+                    request,
+                    "schedulers.html",
+                    context=_ctx(
+                        request,
+                        {
+                            "scheduler_data": scheduler_data,
+                            "active_tab": "schedulers",
+                        },
+                    ),
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.exception("An error occurred while reading schedulers: %s", e)
+                raise HTTPException(
+                    status_code=500,
+                    detail="An error occurred while reading schedulers",
+                )
+
+        @self.get("/schedulers/json", response_model=list[SchedulerData])
+        async def read_schedulers_json(request: Request):
+            try:
+                perms = _get_permissions(request)
+                if self.auth.enabled and not perms.allow_schedulers:
+                    raise HTTPException(
+                        status_code=403, detail="Schedulers page disabled"
+                    )
+                return get_schedulers(
+                    self.redis_url,
+                    allowed_schedulers=perms.schedulers,
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.exception(
+                    "An error occurred while reading schedulers json: %s", e
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="An error occurred while reading schedulers json",
+                )
+
         @self.delete("/queues/{queue_name}")
         def delete_jobs_in_queue(queue_name: str, request: Request):
             try:
@@ -332,8 +397,9 @@ class RedisQueueDashboard(FastAPI):
                 )
 
                 return self.templates.TemplateResponse(
+                    request,
                     "queues.html",
-                    _ctx(
+                    context=_ctx(
                         request,
                         {
                             "queue_data": queue_data,
@@ -390,8 +456,9 @@ class RedisQueueDashboard(FastAPI):
                 )
 
                 return self.templates.TemplateResponse(
+                    request,
                     "jobs.html",
-                    _ctx(
+                    context=_ctx(
                         request,
                         {
                             "job_data": paginated.data,
@@ -471,8 +538,9 @@ class RedisQueueDashboard(FastAPI):
                     result_display = str(result) if result is not None else None
 
                 return self.templates.TemplateResponse(
+                    request,
                     "job.html",
-                    _ctx(
+                    context=_ctx(
                         request,
                         {
                             "job_data": job,
@@ -532,8 +600,9 @@ class RedisQueueDashboard(FastAPI):
                 if self.auth.enabled and not perms.allow_export:
                     raise HTTPException(status_code=403, detail="Export page disabled")
                 return self.templates.TemplateResponse(
+                    request,
                     "export.html",
-                    _ctx(request, {"active_tab": "export"}),
+                    context=_ctx(request, {"active_tab": "export"}),
                 )
             except HTTPException:
                 raise
