@@ -112,7 +112,7 @@
     page = safePage;
     perPage = safePerPage;
     var t0 = performance.now();
-    fetch(baseurl + "/jobs/json?state=" + selectedState + "&queue_name=" + selectedQueue + "&page=" + safePage + "&per_page=" + safePerPage)
+    fetch(baseurl + "/jobs/json?state=" + selectedState + "&queue_name=" + selectedQueue + "&page=" + safePage + "&per_page=" + safePerPage + "&sort_by=" + sortCol + "&sort_dir=" + sortDir)
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -247,7 +247,7 @@
         });
       });
     });
-    allRows = sortJobs(allRows);
+    if (sortCol === 'name') allRows = sortJobs(allRows);
 
     allRows.forEach(function (row) {
       var job = row.job;

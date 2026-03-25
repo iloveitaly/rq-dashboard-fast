@@ -451,6 +451,8 @@ class RedisQueueDashboard(FastAPI):
             state: str = Query("all"),
             page: int = Query(1),
             per_page: int = Query(10),
+            sort_by: str = Query("created_at"),
+            sort_dir: str = Query("desc"),
         ):
             try:
                 perms = _get_permissions(request)
@@ -461,6 +463,8 @@ class RedisQueueDashboard(FastAPI):
                     page=page,
                     per_page=per_page,
                     allowed_queues=perms.queues,
+                    sort_by=sort_by,
+                    sort_dir=sort_dir,
                 )
 
                 return self.templates.TemplateResponse(
@@ -494,6 +498,8 @@ class RedisQueueDashboard(FastAPI):
             state: str = Query("all"),
             page: int = Query(1),
             per_page: int = Query(10),
+            sort_by: str = Query("created_at"),
+            sort_dir: str = Query("desc"),
         ):
             try:
                 perms = _get_permissions(request)
@@ -504,6 +510,8 @@ class RedisQueueDashboard(FastAPI):
                     page=page,
                     per_page=per_page,
                     allowed_queues=perms.queues,
+                    sort_by=sort_by,
+                    sort_dir=sort_dir,
                 )
             except HTTPException:
                 raise
