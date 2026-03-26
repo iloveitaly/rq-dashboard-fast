@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-03-24
+
+### Added
+- Queues page card view with per-queue donut charts showing job state breakdown; toggle between card and table layout; scheduler activity bar showing active CronScheduler count
+- Confirmation dialog before deleting all jobs in a queue
+- Cleanup endpoint (`DELETE /queues/{queue_name}/cleanup`) to remove stale registry entries
+
+### Fixed
+- Deleting all jobs in a queue now clears all job registries (failed, finished, started, deferred, scheduled, canceled), not just the queue itself
+- Job export included data for the last-processed queue only; now correctly collects across all queues
+- Duplicate inner function names in route handlers (caused potential shadowing bugs)
+- Stale registry entries were counted in pagination totals but not shown, producing blank pages; cleaned up on fetch
+- Auto-refresh replaced `setInterval` with adaptive `setTimeout` to prevent overlapping requests under slow responses
+
 ## [0.9.0] - 2026-03-23
 
 ### Added

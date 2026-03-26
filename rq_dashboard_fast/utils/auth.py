@@ -107,8 +107,8 @@ def worker_visible(worker_queues: list[str], allowed_queues: list[str]) -> bool:
     return bool(set(worker_queues) & set(allowed_queues))
 
 
-def scheduler_visible(scheduler_name: str, allowed_schedulers: list[str]) -> bool:
-    """Return True if a scheduler name is in the allowed list."""
+def scheduler_visible(queue_name: str, allowed_schedulers: list[str]) -> bool:
+    """Return True if a job's queue name is in the allowed schedulers list."""
     if "*" in allowed_schedulers:
         return True
-    return scheduler_name in allowed_schedulers
+    return queue_name in allowed_schedulers

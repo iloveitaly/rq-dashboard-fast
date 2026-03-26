@@ -29,6 +29,8 @@ export default defineConfig({
     'select-none',
     // Button loading states (dynamically toggled in JS)
     'opacity-50', 'opacity-25', 'opacity-75', 'animate-spin',
+    // View toggle (dynamically toggled in JS)
+    'hidden',
   ],
   shortcuts: {
     'btn': 'px-3 py-1.5 rounded-md cursor-pointer border-none text-sm font-medium transition-colors duration-150',

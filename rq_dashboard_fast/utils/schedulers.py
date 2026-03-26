@@ -5,6 +5,8 @@ from typing import Optional
 from pydantic import BaseModel
 from redis import Redis
 
+from rq_dashboard_fast.utils.auth import scheduler_visible
+
 logger = logging.getLogger(__name__)
 
 STALE_THRESHOLD_SECONDS = 120
@@ -49,9 +51,6 @@ def get_schedulers(redis_url: str, allowed_schedulers: list[str]) -> list[Schedu
     result = []
 
     for scheduler in schedulers:
-        if "*" not in allowed_schedulers and scheduler.name not in allowed_schedulers:
-            continue
-
         last_hb = scheduler.last_heartbeat
         if last_hb is None:
             is_stale = True
@@ -68,7 +67,11 @@ def get_schedulers(redis_url: str, allowed_schedulers: list[str]) -> list[Schedu
                 latest_enqueue_time=job.latest_enqueue_time,
             )
             for job in scheduler.get_jobs()
+            if scheduler_visible(job.queue_name, allowed_schedulers)
         ]
+
+        if not jobs and "*" not in allowed_schedulers:
+            continue
 
         result.append(
             SchedulerData(

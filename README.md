@@ -14,6 +14,18 @@ Goal of this package is to ease integration into FastAPI-Applications and provid
 
 Featured in Related Projects [Redis Queue Docs](https://github.com/rq/rq)
 
+## Features
+
+- **Real-time monitoring** — live view of queues, jobs, and workers with adaptive auto-refresh
+- **Queue card view** — donut charts showing job state breakdown at a glance, toggle between card and table view
+- **Job management** — inspect, requeue, and delete jobs; view tracebacks with syntax highlighting; export to CSV/JSON
+- **Scheduled & recurring jobs** — first-class support for one-off future jobs (`enqueue_at`/`enqueue_in`) and recurring cron jobs via RQ's native `CronScheduler`
+- **Worker monitoring** — live worker status, queue assignments, and job throughput
+- **Token-based authentication with access scopes** — issue per-token credentials that restrict visibility to specific queues, hide workers or schedulers, enforce read-only mode, and set a custom dashboard title. Ideal for sharing a scoped view with team members or clients without exposing your full infrastructure
+- **Dark mode** — OS-aware with manual toggle, persisted across sessions
+- **Mountable or standalone** — embed as a FastAPI sub-application on any existing app, or run directly from the terminal
+- **Docker-ready** — official images for linux/amd64 and linux/arm64
+
 ## Example Usage
 
 ```python
@@ -158,17 +170,6 @@ Github: [rq-dashboard-fast](https://github.com/Hannes221/rq-dashboard-fast)
 ```
 $ pip install rq-dashboard-fast
 ```
-
-## Planned Features
-
-- [x] Data from rq-scheduler
-- [x] More data about workers
-- [x] Docker Image
-- [x] Add pagination to jobs page
-- [x] Data Export
-- [ ] Statistics Tab
-- [x] Run Standalone (Terminal)
-- [x] Token-based Authentication with Per-Queue Access Control
 
 ## Development
 

@@ -33,6 +33,216 @@
   background-color: #991b1b;
 }
 
+/* --- Next scheduled job card --- */
+.next-job-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 0.625rem;
+  padding: 0.625rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.8rem;
+  color: #1e40af;
+  overflow: hidden;
+}
+.dark .next-job-card {
+  background: #1e3a8a1a;
+  border-color: #1e40af66;
+  color: #93c5fd;
+}
+.next-job-icon { width: 1rem; height: 1rem; flex-shrink: 0; opacity: 0.7; }
+.next-job-info { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; min-width: 0; }
+.next-job-label { font-weight: 500; opacity: 0.7; white-space: nowrap; }
+.next-job-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 28ch; }
+.next-job-arrow { opacity: 0.5; }
+.next-job-queue { opacity: 0.8; white-space: nowrap; }
+.next-job-time { margin-left: auto; white-space: nowrap; font-weight: 600; flex-shrink: 0; }
+
+/* --- View toggle buttons --- */
+.view-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.dark .view-btn { background: #1f2937; border-color: #374151; color: #9ca3af; }
+.view-btn:hover { background: #f3f4f6; }
+.dark .view-btn:hover { background: #374151; color: #e5e7eb; }
+.view-btn-active { background: #1d4ed8 !important; color: #fff !important; border-color: #1d4ed8 !important; }
+.dark .view-btn-active { background: #2563eb !important; border-color: #2563eb !important; }
+
+/* --- Queue cards grid --- */
+.queues-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(1, 1fr);
+  gap: 1rem;
+}
+@media (min-width: 640px) { .queues-cards-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1024px) { .queues-cards-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 1280px) { .queues-cards-grid { grid-template-columns: repeat(4, 1fr); } }
+
+.queue-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.625rem;
+  padding: 1rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+  display: flex;
+  flex-direction: column;
+}
+.dark .queue-card { background: #1f2937; border-color: #374151; }
+
+.queue-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.625rem;
+  margin-bottom: 0.625rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+.dark .queue-card-header { border-bottom-color: #374151; }
+.queue-card-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #111827;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dark .queue-card-name { color: #f9fafb; }
+.queue-card-name:hover { color: #1d4ed8; }
+.dark .queue-card-name:hover { color: #60a5fa; }
+
+/* Table queue name link */
+.queue-table-name {
+  font-weight: 500;
+  color: #111827;
+  text-decoration: none;
+}
+.dark .queue-table-name { color: #f9fafb; }
+.queue-table-name:hover { color: #1d4ed8; }
+.dark .queue-table-name:hover { color: #60a5fa; }
+
+/* Table stat number link */
+.queue-table-stat { text-decoration: none; }
+.queue-table-stat:hover { text-decoration: underline; }
+
+/* Actions cell — shrink to fit the menu button */
+.td-cell-action { width: 2.5rem; text-align: center; }
+
+/* Three-dot menu */
+.queue-menu-wrap { position: relative; flex-shrink: 0; }
+.queue-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.375rem;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.queue-menu-btn:hover { background: #f3f4f6; color: #374151; }
+.dark .queue-menu-btn:hover { background: #374151; color: #e5e7eb; }
+.queue-menu-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 50;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  min-width: 11rem;
+  overflow: hidden;
+}
+.dark .queue-menu-dropdown { background: #1f2937; border-color: #374151; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+.queue-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+.queue-menu-item-danger { color: #dc2626; }
+.queue-menu-item-danger:hover { background: #fef2f2; }
+.dark .queue-menu-item-danger { color: #f87171; }
+.dark .queue-menu-item-danger:hover { background: #450a0a33; }
+
+.queue-card-body {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+/* Donut */
+.queue-donut-wrap { flex-shrink: 0; }
+.queue-donut {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  position: relative;
+}
+.queue-donut-hole {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dark .queue-donut-hole { background: #1f2937; }
+.queue-donut-total {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #111827;
+}
+.dark .queue-donut-total { color: #f9fafb; }
+
+/* Stat rows inside card */
+.queue-card-stats { flex: 1; display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.queue-stat-row { display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; }
+.queue-stat-empty { font-size: 0.75rem; color: #9ca3af; font-style: italic; padding: 0.25rem 0; }
+.queue-stat-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  text-decoration: none;
+}
+.queue-stat-label:hover { text-decoration: underline; }
+.queue-stat-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.queue-stat-val { font-variant-numeric: tabular-nums; font-weight: 500; }
+
 /* Pygments dark mode overrides */
 .dark .highlight {
   background-color: #1f2937 !important;

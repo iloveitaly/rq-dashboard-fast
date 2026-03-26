@@ -1,10 +1,6 @@
 {% extends "base.html" %}{% block content %}
 <script>
-  let autoRefreshInterval;
-  const protocol = "{{ protocol }}";
-  const host = window.location.host;
-  const prefix = "{{ prefix }}";
-  const baseurl = protocol + "://" + host + prefix;
+  const { baseurl, scheduleNextRefresh, recordResponseTime, startAutorefresh, stopAutorefresh } = initAutorefresh(updateJobsData, "{{ protocol }}", "{{ prefix }}");
 
   function escapeHtml(s) {
     if (s == null) return '';
@@ -45,17 +41,8 @@
     setTimeout(function () { document.body.removeChild(notification); }, 3000);
   }
 
-  function startAutorefresh() {
-    clearInterval(autoRefreshInterval);
-    autoRefreshInterval = setInterval(function () { if (window.autoRefreshEnabled) updateJobsData(); }, 5000);
-  }
-
-  function stopAutorefresh() {
-    clearInterval(autoRefreshInterval);
-  }
-
   let page = 1;
-  let perPage = {{ per_page if per_page is defined else 10 }};
+  let perPage = parseInt(localStorage.getItem('jobs_per_page')) || {{ per_page if per_page is defined else 10 }};
   let totalPages = {{ total_pages }};
   let totalJobs = {{ total }};
 
@@ -113,6 +100,7 @@
 
   function changePerPage(newPerPage) {
     perPage = newPerPage;
+    localStorage.setItem('jobs_per_page', newPerPage);
     page = 1;
     updateJobsData();
   }
@@ -124,22 +112,27 @@
     var safePerPage = (Number.isFinite(perPage) && perPage > 0) ? perPage : 10;
     page = safePage;
     perPage = safePerPage;
-    fetch(baseurl + "/jobs/json?state=" + selectedState + "&queue_name=" + selectedQueue + "&page=" + safePage + "&per_page=" + safePerPage)
+    var t0 = performance.now();
+    fetch(baseurl + "/jobs/json?state=" + selectedState + "&queue_name=" + selectedQueue + "&page=" + safePage + "&per_page=" + safePerPage + "&sort_by=" + sortCol + "&sort_dir=" + sortDir)
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
       })
       .then(function (response) {
+        recordResponseTime(performance.now() - t0);
         totalPages = response.total_pages;
         totalJobs = response.total;
         page = response.page;
         perPage = response.per_page;
         updateJobsTable(response.data);
         renderPagination();
+        scheduleNextRefresh();
       })
       .catch(function (error) {
+        recordResponseTime(performance.now() - t0);
         console.error("Error fetching jobs data: ", error);
         showErrorNotification("Error fetching jobs data");
+        scheduleNextRefresh();
       });
   }
 
@@ -255,7 +248,7 @@
         });
       });
     });
-    allRows = sortJobs(allRows);
+    if (sortCol === 'name') allRows = sortJobs(allRows);
 
     allRows.forEach(function (row) {
       var job = row.job;
@@ -336,6 +329,32 @@
       });
   }
 
+  function cleanupStaleJobs() {
+    var selectedQueue = document.getElementById("queue-name-filter").value;
+    var queueLabel = selectedQueue === "all" ? "all queues" : "queue '" + selectedQueue + "'";
+    if (!confirm("Remove stale job IDs from " + queueLabel + "?\n\nThis deletes registry entries whose job data has already been evicted from Redis. The operation cannot be undone.")) return;
+    var btn = document.getElementById("cleanup-btn");
+    setBtnLoading(btn);
+    fetch(baseurl + "/queues/" + encodeURIComponent(selectedQueue) + "/cleanup-stale", {
+      method: "POST",
+      headers: {"X-CSRF-Token": getCsrfToken()}
+    })
+    .then(function(r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(function(result) {
+      resetBtn(btn);
+      showNotification("Removed " + result.removed + " stale job ID" + (result.removed !== 1 ? "s" : ""));
+      updateJobsData();
+    })
+    .catch(function(error) {
+      console.error("Error cleaning up stale jobs:", error);
+      showErrorNotification("Error cleaning up stale jobs");
+      resetBtn(btn);
+    });
+  }
+
   function requeueJob(job_id, btn) {
     if (!confirm("Requeue job " + shortId(job_id) + "?")) return;
     setBtnLoading(btn);
@@ -380,9 +399,16 @@
 </script>
 
 <div class="max-w-[90%] mx-auto mt-6 px-4">
-  <p class="text-sm text-gray-600 dark:text-gray-400">
-    Filter jobs by state and queue. Hover over timestamps for the full date, over the job name for the full name, or over the short ID for the full job id.
-  </p>
+  <div class="flex items-center justify-between gap-4 flex-wrap">
+    <p class="text-sm text-gray-600 dark:text-gray-400">
+      Filter jobs by state and queue. Hover over timestamps for the full date, over the job name for the full name, or over the short ID for the full job id.
+    </p>
+    {% if access == "admin" %}
+    <button id="cleanup-btn" onclick="cleanupStaleJobs()" class="btn-export shrink-0" title="Remove job IDs from registries whose backing data has been evicted from Redis">
+      Clean up stale jobs
+    </button>
+    {% endif %}
+  </div>
   <table id="jobs" class="data-table table-fixed w-full">
     <thead>
       <tr>

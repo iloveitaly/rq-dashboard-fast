@@ -406,16 +406,16 @@ class TestCustomTitle:
 
 class TestSchedulerVisible:
     def test_wildcard_allows_all(self):
-        assert scheduler_visible("any-scheduler", ["*"]) is True
+        assert scheduler_visible("any-queue", ["*"]) is True
 
     def test_explicit_match(self):
-        assert scheduler_visible("email-cron", ["email-cron", "payment-cron"]) is True
+        assert scheduler_visible("ramirent", ["ramirent", "naboen"]) is True
 
     def test_no_match(self):
-        assert scheduler_visible("other-cron", ["email-cron"]) is False
+        assert scheduler_visible("mreg", ["ramirent"]) is False
 
     def test_empty_list(self):
-        assert scheduler_visible("email-cron", []) is False
+        assert scheduler_visible("ramirent", []) is False
 
 
 class TestWorkerVisible:

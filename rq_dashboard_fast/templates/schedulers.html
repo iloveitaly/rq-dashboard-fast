@@ -1,10 +1,6 @@
 {% extends "base.html" %}{% block content %}
 <script>
-  let autoRefreshInterval = null;
-  const protocol = "{{ protocol }}";
-  const host = window.location.host;
-  const prefix = "{{ prefix }}";
-  const baseurl = protocol + "://" + host + prefix;
+  const { baseurl, scheduleNextRefresh, recordResponseTime, startAutorefresh, stopAutorefresh } = initAutorefresh(updateData, "{{ protocol }}", "{{ prefix }}");
 
   function escapeHtml(s) {
     if (s == null) return '';
@@ -62,15 +58,6 @@
     setTimeout(function () { document.body.removeChild(notification); }, 3000);
   }
 
-  function startAutorefresh() {
-    clearInterval(autoRefreshInterval);
-    autoRefreshInterval = setInterval(function () { if (window.autoRefreshEnabled) updateData(); }, 5000);
-  }
-
-  function stopAutorefresh() {
-    clearInterval(autoRefreshInterval);
-  }
-
   document.addEventListener('DOMContentLoaded', function () {
     if (window.autoRefreshEnabled) { startAutorefresh(); }
   });
@@ -86,12 +73,19 @@
   });
 
   function updateData() {
+    var t0 = performance.now();
     fetch(baseurl + '/schedulers/json')
       .then(function (r) { return r.json(); })
-      .then(function (data) { renderSchedulers(data); })
+      .then(function (data) {
+        recordResponseTime(performance.now() - t0);
+        renderSchedulers(data);
+        scheduleNextRefresh();
+      })
       .catch(function (error) {
+        recordResponseTime(performance.now() - t0);
         console.error('Error fetching schedulers data: ', error);
         showErrorNotification('Error fetching schedulers data');
+        scheduleNextRefresh();
       });
   }
 

@@ -1,10 +1,7 @@
 {% extends "base.html" %}{% block content %}
 <script>
-  let autoRefreshInterval;
-  const protocol = '{{ protocol }}';
-  const host = window.location.host;
-  const prefix = '{{ prefix }}';
-  const baseurl = protocol + '://' + host + prefix;
+  const { baseurl, scheduleNextRefresh, recordResponseTime, startAutorefresh, stopAutorefresh } = initAutorefresh(updateQueuesData, '{{ protocol }}', '{{ prefix }}');
+  const isAdmin = "{{ access }}" === "admin";
 
   function escapeHtml(s) {
     if (s == null) return '';
@@ -12,53 +9,164 @@
   }
 
   function showNotification(message) {
-    const notification = document.createElement('div');
-    notification.className = 'notification';
-    notification.textContent = message;
-    document.body.appendChild(notification);
-    setTimeout(function () { document.body.removeChild(notification); }, 3000);
+    var n = document.createElement('div');
+    n.className = 'notification';
+    n.textContent = message;
+    document.body.appendChild(n);
+    setTimeout(function () { document.body.removeChild(n); }, 3000);
   }
 
   function showErrorNotification(message) {
-    const notification = document.createElement('div');
-    notification.className = 'error-notification';
-    notification.textContent = message;
-    document.body.appendChild(notification);
-    setTimeout(function () { document.body.removeChild(notification); }, 3000);
+    var n = document.createElement('div');
+    n.className = 'error-notification';
+    n.textContent = message;
+    document.body.appendChild(n);
+    setTimeout(function () { document.body.removeChild(n); }, 3000);
   }
 
-  function startAutorefresh() {
-    clearInterval(autoRefreshInterval);
-    autoRefreshInterval = setInterval(function () { if (window.autoRefreshEnabled) updateQueuesData(); }, 5000);
+  // --- view management ---
+  function getActiveView() {
+    var urlParams = new URLSearchParams(window.location.search);
+    var urlView = urlParams.get('view');
+    if (urlView === 'table' || urlView === 'cards') return urlView;
+    return localStorage.getItem('queues-view') || 'table';
   }
 
-  function stopAutorefresh() {
-    clearInterval(autoRefreshInterval);
+  function setView(view) {
+    var urlView = new URLSearchParams(window.location.search).get('view');
+    if (!urlView) { localStorage.setItem('queues-view', view); }
+    applyView(view);
   }
 
-  document.addEventListener('DOMContentLoaded', function () {
-    if (window.autoRefreshEnabled) { startAutorefresh(); }
-    updateQueuesData();
+  function applyView(view) {
+    document.getElementById('view-table').classList.toggle('hidden', view !== 'table');
+    document.getElementById('view-cards').classList.toggle('hidden', view !== 'cards');
+    document.getElementById('btn-view-table').classList.toggle('view-btn-active', view === 'table');
+    document.getElementById('btn-view-cards').classList.toggle('view-btn-active', view === 'cards');
+  }
+
+  // --- donut chart ---
+  var DONUT_ORDER = ['failed', 'started', 'queued', 'deferred', 'finished', 'canceled'];
+  var DONUT_COLORS = {
+    failed: '#ef4444', started: '#f97316', queued: '#3b82f6',
+    deferred: '#eab308', finished: '#22c55e', canceled: '#6b7280'
+  };
+  var STATUS_LABELS = {
+    failed: 'Failed', started: 'Running', queued: 'Queued',
+    deferred: 'Deferred', finished: 'Finished', canceled: 'Canceled'
+  };
+  var STATUS_COLORS_TEXT = {
+    failed: '#ef4444', started: '#f97316', queued: '#3b82f6',
+    deferred: '#ca8a04', finished: '#16a34a', canceled: '#6b7280'
+  };
+
+  function makeDonutGradient(stats) {
+    var total = DONUT_ORDER.reduce(function(s, k) { return s + (stats[k] || 0); }, 0);
+    if (total === 0) return 'conic-gradient(#d1d5db 0% 100%)';
+    var pct = 0;
+    var stops = DONUT_ORDER.map(function(k) {
+      var start = pct;
+      pct += (stats[k] || 0) / total * 100;
+      return DONUT_COLORS[k] + ' ' + start.toFixed(2) + '% ' + pct.toFixed(2) + '%';
+    });
+    return 'conic-gradient(' + stops.join(', ') + ')';
+  }
+
+  // --- three-dot menu ---
+  function toggleMenu(menuId, event) {
+    event.stopPropagation();
+    var menu = document.getElementById(menuId);
+    var isOpen = !menu.classList.contains('hidden');
+    // close all dropdowns
+    document.querySelectorAll('.queue-menu-dropdown').forEach(function(m) { m.classList.add('hidden'); });
+    if (!isOpen) { menu.classList.remove('hidden'); }
+  }
+
+  document.addEventListener('click', function() {
+    document.querySelectorAll('.queue-menu-dropdown').forEach(function(m) { m.classList.add('hidden'); });
   });
 
-  document.addEventListener('autorefresh-changed', function (e) {
-    if (e.detail.enabled) {
-      startAutorefresh();
-      showNotification('Autorefresh enabled');
-    } else {
-      stopAutorefresh();
-      showNotification('Autorefresh disabled');
-    }
-  });
+  function makeCard(q) {
+    var safe = escapeHtml(q.queue_name);
+    var enc = encodeURIComponent(q.queue_name);
+    var menuId = 'menu-' + enc;
+    var total = DONUT_ORDER.reduce(function(s, k) { return s + (q[k] || 0); }, 0);
+    var donut = makeDonutGradient(q);
 
+    var nonZero = DONUT_ORDER.filter(function(k) { return (q[k] || 0) > 0; });
+    var rows = nonZero.length > 0
+      ? nonZero.map(function(k) {
+          var val = q[k] || 0;
+          var col = STATUS_COLORS_TEXT[k];
+          var bold = (k === 'failed') ? ' font-weight:600;' : '';
+          return '<div class="queue-stat-row">' +
+            '<a href="' + baseurl + '/jobs?queue_name=' + enc + '&state=' + k + '" class="queue-stat-label" style="color:' + col + '">' +
+              '<span class="queue-stat-dot" style="background:' + DONUT_COLORS[k] + '"></span>' +
+              STATUS_LABELS[k] +
+            '</a>' +
+            '<span class="queue-stat-val" style="color:' + col + ';' + bold + '">' + val + '</span>' +
+          '</div>';
+        }).join('')
+      : '<div class="queue-stat-empty">No active jobs</div>';
+
+    var menuBtn = isAdmin
+      ? '<div class="queue-menu-wrap">' +
+          '<button class="queue-menu-btn" onclick="toggleMenu(\'' + menuId + '\', event)" title="Actions">' +
+            '<svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">' +
+              '<circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>' +
+            '</svg>' +
+          '</button>' +
+          '<div id="' + menuId + '" class="queue-menu-dropdown hidden">' +
+            '<button class="queue-menu-item queue-menu-item-danger" data-queue="' + enc + '">' +
+              '<svg class="w-3.5 h-3.5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>' +
+              'Clear all job history' +
+            '</button>' +
+          '</div>' +
+        '</div>'
+      : '';
+
+    return '<div class="queue-card">' +
+      '<div class="queue-card-header">' +
+        '<a href="' + baseurl + '/jobs?queue_name=' + enc + '" class="queue-card-name">' + safe + '</a>' +
+        menuBtn +
+      '</div>' +
+      '<div class="queue-card-body">' +
+        '<div class="queue-donut-wrap">' +
+          '<div class="queue-donut" style="background:' + donut + '">' +
+            '<div class="queue-donut-hole"><span class="queue-donut-total">' + total + '</span></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="queue-card-stats">' + rows + '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // --- data ---
   function updateQueuesData() {
+    var t0 = performance.now();
     fetch(baseurl + '/queues/json')
-      .then(function (r) { return r.json(); })
-      .then(function (data) { updateQueuesTable(data); })
-      .catch(function (error) {
-        console.error('Error fetching queues data: ', error);
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        recordResponseTime(performance.now() - t0);
+        updateQueuesTable(data);
+        updateQueuesCards(data);
+        scheduleNextRefresh();
+      })
+      .catch(function(error) {
+        recordResponseTime(performance.now() - t0);
+        console.error('Error fetching queues data:', error);
         showErrorNotification('Error fetching queues data');
+        scheduleNextRefresh();
       });
+  }
+
+  function updateQueuesCards(data) {
+    var grid = document.getElementById('queues-cards-grid');
+    if (!grid) return;
+    grid.innerHTML = data.map(makeCard).join('');
+    grid.querySelectorAll('.queue-menu-item-danger[data-queue]').forEach(function(btn) {
+      btn.addEventListener('click', function() { deleteJobsInQueue(this.getAttribute('data-queue'), this); });
+    });
   }
 
   function setBtnLoading(btn) {
@@ -80,123 +188,200 @@
   }
 
   function deleteJobsInQueue(queue_name, btn) {
+    var decoded = decodeURIComponent(queue_name);
+    if (!confirm('Clear all jobs in queue "' + decoded + '"?\n\nThis will permanently remove all jobs in every state (pending, running, finished, failed, deferred, canceled).\n\nJobs scheduled via Cron will not be affected.')) return;
     setBtnLoading(btn);
-    fetch(baseurl + '/queues/' + queue_name, { method: 'DELETE', headers: {"X-CSRF-Token": getCsrfToken()} })
-      .then(function (r) {
-        if (!r.ok) { showErrorNotification('Error deleting jobs in queue'); resetBtn(btn); }
+    fetch(baseurl + '/queues/' + queue_name, { method: 'DELETE', headers: {'X-CSRF-Token': getCsrfToken()} })
+      .then(function(r) {
+        if (!r.ok) { showErrorNotification('Error clearing queue'); resetBtn(btn); }
         else { updateQueuesData(); }
       })
-      .catch(function (error) {
-        console.error('Error deleting jobs in queue: ', error);
-        showErrorNotification('Error deleting jobs in queue');
+      .catch(function(error) {
+        console.error('Error clearing queue:', error);
+        showErrorNotification('Error clearing queue');
         resetBtn(btn);
       });
   }
 
+  function makeTableMenuBtn(enc) {
+    var menuId = 'tmenu-' + enc;
+    return '<div class="queue-menu-wrap">' +
+      '<button class="queue-menu-btn" onclick="toggleMenu(\'' + menuId + '\', event)" title="Actions">' +
+        '<svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">' +
+          '<circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>' +
+        '</svg>' +
+      '</button>' +
+      '<div id="' + menuId + '" class="queue-menu-dropdown hidden">' +
+        '<button class="queue-menu-item queue-menu-item-danger" data-queue="' + enc + '">' +
+          '<svg class="w-3.5 h-3.5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>' +
+          'Clear all job history' +
+        '</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function makeStatCell(val, state, enc) {
+    var isDark = document.documentElement.classList.contains('dark');
+    var zeroColor = isDark ? '#4b5563' : '#cbd5e1';
+    var color = val > 0 ? STATUS_COLORS_TEXT[state] : zeroColor;
+    var weight = (state === 'failed' && val > 0) ? '600' : '400';
+    return '<td class="td-cell">' +
+      '<a href="' + baseurl + '/jobs?state=' + state + '&queue_name=' + enc + '" class="queue-table-stat" style="color:' + color + ';font-weight:' + weight + '">' +
+      val + '</a></td>';
+  }
+
   function updateQueuesTable(data) {
     var tableBody = document.querySelector('#queues tbody');
+    if (!tableBody) return;
     tableBody.innerHTML = '';
-
-    data.forEach(function (queue_stats) {
-      var safeQueueName = escapeHtml(queue_stats.queue_name);
-      var encodedQueueName = encodeURIComponent(queue_stats.queue_name);
+    data.forEach(function(q) {
+      var safe = escapeHtml(q.queue_name);
+      var enc = encodeURIComponent(q.queue_name);
       var states = ['queued', 'started', 'failed', 'deferred', 'finished', 'canceled'];
-      var cells = states.map(function (state) {
-        return '<td class="td-cell"><a class="text-blue-700 dark:text-blue-400" href="' + baseurl + '/jobs?state=' + state + '&queue_name=' + encodedQueueName + '">' + queue_stats[state] + '</a></td>';
-      }).join('');
-
-      var isAdmin = "{{ access }}" === "admin";
+      var cells = states.map(function(s) { return makeStatCell(q[s] || 0, s, enc); }).join('');
       var actionCell = isAdmin
-        ? '<td class="td-cell"><button class="btn-delete" data-queue="' + encodedQueueName + '" title="Delete jobs"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg></button></td>'
+        ? '<td class="td-cell td-cell-action">' + makeTableMenuBtn(enc) + '</td>'
         : '';
-      tableBody.innerHTML +=
-        '<tr class="tr-stripe">' +
-        '<td class="td-cell">' + safeQueueName + '</td>' +
-        cells +
-        actionCell +
-        '</tr>';
+      tableBody.innerHTML += '<tr class="tr-stripe">' +
+        '<td class="td-cell"><a href="' + baseurl + '/jobs?queue_name=' + enc + '" class="queue-table-name">' + safe + '</a></td>' +
+        cells + actionCell + '</tr>';
     });
-
-    tableBody.querySelectorAll('[data-queue]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        deleteJobsInQueue(this.getAttribute('data-queue'), this);
-      });
+    tableBody.querySelectorAll('.queue-menu-item-danger[data-queue]').forEach(function(btn) {
+      btn.addEventListener('click', function() { deleteJobsInQueue(this.getAttribute('data-queue'), this); });
     });
   }
+
+  // --- countdown ---
+  function formatCountdown(secs) {
+    if (secs <= 0) return 'now';
+    var h = Math.floor(secs / 3600);
+    var m = Math.floor((secs % 3600) / 60);
+    var s = secs % 60;
+    if (h > 0) return h + 'h ' + m + 'm';
+    if (m > 0) return m + 'm ' + s + 's';
+    return s + 's';
+  }
+
+  function startCountdown() {
+    var el = document.getElementById('next-job-countdown');
+    if (!el) return;
+    var target = new Date(el.dataset.target);
+    function tick() {
+      var secs = Math.max(0, Math.round((target - Date.now()) / 1000));
+      el.textContent = formatCountdown(secs);
+    }
+    tick();
+    setInterval(tick, 1000);
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    applyView(getActiveView());
+    document.getElementById('btn-view-table').addEventListener('click', function() { setView('table'); });
+    document.getElementById('btn-view-cards').addEventListener('click', function() { setView('cards'); });
+    startCountdown();
+    if (window.autoRefreshEnabled) { startAutorefresh(); }
+    updateQueuesData();
+    document.querySelectorAll('.queue-menu-item-danger[data-queue-ssr]').forEach(function(btn) {
+      btn.addEventListener('click', function() { deleteJobsInQueue(this.getAttribute('data-queue-ssr'), this); });
+    });
+  });
+
+  document.addEventListener('autorefresh-changed', function(e) {
+    if (e.detail.enabled) { startAutorefresh(); showNotification('Autorefresh enabled'); }
+    else { stopAutorefresh(); showNotification('Autorefresh disabled'); }
+  });
 </script>
 
 <div class="max-w-[90%] mx-auto mt-6 px-4">
-  <table id="queues" class="data-table">
-    <thead>
-      <tr>
-        <th class="th-cell">Queue Name</th>
-        <th class="th-cell">Queued</th>
-        <th class="th-cell">Started</th>
-        <th class="th-cell">Failed</th>
-        <th class="th-cell">Deferred</th>
-        <th class="th-cell">Finished</th>
-        <th class="th-cell">Canceled</th>
-        {% if access == "admin" %}<th class="th-cell">Actions</th>{% endif %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for queue_stats in queue_data %}
-      <tr class="tr-stripe">
-        <td class="td-cell">
-          <a class="text-blue-700 dark:text-blue-400" href="{{prefix}}/jobs?queue_name={{ queue_stats.queue_name }}">
-            {{ queue_stats.queue_name }}
-          </a>
-        </td>
-        <td class="td-cell">
-          <a class="text-blue-700 dark:text-blue-400" href="{{prefix}}/jobs?queue_name={{ queue_stats.queue_name }}&state=queued">
-            {{ queue_stats.queued }}
-          </a>
-        </td>
-        <td class="td-cell">
-          <a class="text-blue-700 dark:text-blue-400" href="{{prefix}}/jobs?queue_name={{ queue_stats.queue_name }}&state=started">
-            {{ queue_stats.started }}
-          </a>
-        </td>
-        <td class="td-cell">
-          <a class="text-blue-700 dark:text-blue-400" href="{{prefix}}/jobs?queue_name={{ queue_stats.queue_name }}&state=failed">
-            {{ queue_stats.failed }}
-          </a>
-        </td>
-        <td class="td-cell">
-          <a class="text-blue-700 dark:text-blue-400" href="{{prefix}}/jobs?queue_name={{ queue_stats.queue_name }}&state=deferred">
-            {{ queue_stats.deferred }}
-          </a>
-        </td>
-        <td class="td-cell">
-          <a class="text-blue-700 dark:text-blue-400" href="{{prefix}}/jobs?queue_name={{ queue_stats.queue_name }}&state=finished">
-            {{ queue_stats.finished }}
-          </a>
-        </td>
-        <td class="td-cell">
-          <a class="text-blue-700 dark:text-blue-400" href="{{prefix}}/jobs?queue_name={{ queue_stats.queue_name }}&state=canceled">
-            {{ queue_stats.canceled }}
-          </a>
-        </td>
-        {% if access == "admin" %}
-        <td class="td-cell">
-          <button class="btn-delete" data-queue-ssr="{{ queue_stats.queue_name }}" title="Delete jobs">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
-          </button>
-        </td>
-        {% endif %}
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+  {% if allow_schedulers and next_scheduled_job %}
+  <div class="next-job-card">
+    <svg class="next-job-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2"/>
+    </svg>
+    <div class="next-job-info">
+      <span class="next-job-label">Next scheduled</span>
+      <span class="next-job-name">{{ next_scheduled_job.func_name }}</span>
+      <span class="next-job-arrow">&rarr;</span>
+      <span class="next-job-queue">{{ next_scheduled_job.queue_name }}</span>
+    </div>
+    <div class="next-job-time">
+      in <span id="next-job-countdown" data-target="{{ next_scheduled_job.next_enqueue_time.isoformat() }}">…</span>
+    </div>
+  </div>
+  {% endif %}
 
-<script>
-  document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('[data-queue-ssr]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        deleteJobsInQueue(this.getAttribute('data-queue-ssr'), this);
-      });
-    });
-  });
-</script>
+  <div class="flex justify-end mb-4 gap-2">
+    <button id="btn-view-table" class="view-btn">
+      <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M3 6h18M3 14h18M3 18h18"/>
+      </svg>
+      Table
+    </button>
+    <button id="btn-view-cards" class="view-btn">
+      <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+      </svg>
+      Cards
+    </button>
+  </div>
+
+  <div id="view-table">
+    <table id="queues" class="data-table">
+      {% set state_colors = {'queued': '#3b82f6', 'started': '#f97316', 'failed': '#ef4444', 'deferred': '#ca8a04', 'finished': '#16a34a', 'canceled': '#6b7280'} %}
+      <thead>
+        <tr>
+          <th class="th-cell">Queue Name</th>
+          <th class="th-cell">Queued</th>
+          <th class="th-cell">Started</th>
+          <th class="th-cell">Failed</th>
+          <th class="th-cell">Deferred</th>
+          <th class="th-cell">Finished</th>
+          <th class="th-cell">Canceled</th>
+          {% if access == "admin" %}<th class="th-cell"></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for q in queue_data %}
+        <tr class="tr-stripe">
+          <td class="td-cell">
+            <a class="queue-table-name" href="{{prefix}}/jobs?queue_name={{ q.queue_name }}">{{ q.queue_name }}</a>
+          </td>
+          {% for state in ['queued', 'started', 'failed', 'deferred', 'finished', 'canceled'] %}
+          {% set val = q | attr(state) %}
+          <td class="td-cell">
+            <a class="queue-table-stat" href="{{prefix}}/jobs?queue_name={{ q.queue_name }}&state={{ state }}"
+               style="color:{{ state_colors[state] if val > 0 else '#cbd5e1' }};{% if state == 'failed' and val > 0 %}font-weight:600;{% endif %}">{{ val }}</a>
+          </td>
+          {% endfor %}
+          {% if access == "admin" %}
+          <td class="td-cell td-cell-action">
+            {% set menu_id = 'tmenu-ssr-' ~ q.queue_name %}
+            <div class="queue-menu-wrap">
+              <button class="queue-menu-btn" onclick="toggleMenu('{{ menu_id }}', event)" title="Actions">
+                <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                  <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>
+                </svg>
+              </button>
+              <div id="{{ menu_id }}" class="queue-menu-dropdown hidden">
+                <button class="queue-menu-item queue-menu-item-danger" data-queue-ssr="{{ q.queue_name }}">
+                  <svg class="w-3.5 h-3.5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
+                  Clear all job history
+                </button>
+              </div>
+            </div>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div id="view-cards" class="hidden">
+    <div id="queues-cards-grid" class="queues-cards-grid">
+      <!-- populated by JS -->
+    </div>
+  </div>
+</div>
 {% endblock %}

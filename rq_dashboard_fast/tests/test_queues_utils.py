@@ -1,6 +1,6 @@
 import pytest
 from redis import Redis
-from rq import Queue
+from rq import Queue, SimpleWorker
 
 from ..utils.queues import (
     QueueRegistryStats,
@@ -20,6 +20,10 @@ def setup_redis():
 
 def example_task():
     return "Hello World"
+
+
+def failing_task():
+    raise ValueError("intentional failure")
 
 
 def test_get_queues(setup_redis):
@@ -65,6 +69,35 @@ def test_delete_jobs_for_queue(setup_redis):
     assert any(
         stat.queued == 0 and stat.queue_name == queue_name for stat in registry_stats
     )
+
+
+def test_delete_jobs_for_queue_clears_all_registries(setup_redis):
+    """delete_jobs_for_queue must remove jobs from all registries, not just the pending queue."""
+    redis_url = "redis://redis:6379"
+    queue_name = "test_queue_registries"
+    queue = Queue(connection=setup_redis, name=queue_name)
+
+    # Enqueue one job that will succeed and one that will fail
+    queue.enqueue(example_task)
+    queue.enqueue(failing_task)
+
+    # Process both jobs so they end up in finished/failed registries
+    worker = SimpleWorker([queue], connection=setup_redis)
+    worker.work(burst=True)
+
+    stats_before = get_job_registry_amount(redis_url)
+    queue_stats = next(s for s in stats_before if s.queue_name == queue_name)
+    assert queue_stats.finished >= 1
+    assert queue_stats.failed >= 1
+
+    delete_jobs_for_queue(queue_name, redis_url)
+
+    stats_after = get_job_registry_amount(redis_url)
+    remaining = next((s for s in stats_after if s.queue_name == queue_name), None)
+    if remaining:
+        assert remaining.finished == 0
+        assert remaining.failed == 0
+        assert remaining.queued == 0
 
 
 def test_convert_queue_data_to_json_dict():

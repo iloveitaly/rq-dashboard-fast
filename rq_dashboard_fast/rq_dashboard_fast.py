@@ -2,6 +2,7 @@ import asyncio
 import csv
 import json
 import logging
+from datetime import datetime, timezone
 from io import BytesIO, StringIO
 from pathlib import Path
 from urllib.parse import urlencode
@@ -37,6 +38,7 @@ from rq_dashboard_fast.utils.jobs import (
     JobDataDetailed,
     PaginatedJobResponse,
     QueueJobRegistryStats,
+    cleanup_stale_jobs,
     convert_queue_job_registry_dict_to_list,
     convert_queue_job_registry_stats_to_json_dict,
     delete_job_id,
@@ -95,7 +97,7 @@ class RedisQueueDashboard(FastAPI):
         self.protocol = protocol
         self.auth = AuthConfig(auth_config)
 
-        self.rq_dashboard_version = "0.9.0"
+        self.rq_dashboard_version = "0.9.1"
 
         logger = logging.getLogger(__name__)
 
@@ -216,49 +218,9 @@ class RedisQueueDashboard(FastAPI):
             return base
 
         @self.get("/", response_class=HTMLResponse)
-        async def get_home(
-            request: Request,
-            queue_name: str = Query("all"),
-            state: str = Query("all"),
-            page: int = Query(1),
-            per_page: int = Query(10),
-        ):
-            try:
-                perms = _get_permissions(request)
-                paginated = get_jobs(
-                    self.redis_url,
-                    queue_name,
-                    state,
-                    page=page,
-                    per_page=per_page,
-                    allowed_queues=perms.queues,
-                )
-
-                return self.templates.TemplateResponse(
-                    request,
-                    "jobs.html",
-                    context=_ctx(
-                        request,
-                        {
-                            "job_data": paginated.data,
-                            "page": paginated.page,
-                            "per_page": paginated.per_page,
-                            "total_pages": paginated.total_pages,
-                            "total": paginated.total,
-                            "active_tab": "jobs",
-                        },
-                    ),
-                )
-            except HTTPException:
-                raise
-            except Exception as e:
-                logger.exception(
-                    "An error occurred while loading the base template: %s", e
-                )
-                raise HTTPException(
-                    status_code=500,
-                    detail="An error occurred while loading the base template",
-                )
+        async def get_home(request: Request):
+            queues_url = request.scope.get("root_path", prefix) + "/queues"
+            return RedirectResponse(url=queues_url, status_code=302)
 
         @self.get("/workers", response_class=HTMLResponse)
         async def read_workers(request: Request):
@@ -387,14 +349,58 @@ class RedisQueueDashboard(FastAPI):
                     detail="An error occurred while deleting jobs in queue",
                 )
 
+        @self.post("/queues/{queue_name}/cleanup-stale")
+        def cleanup_stale_jobs_endpoint(queue_name: str, request: Request):
+            try:
+                perms = _get_permissions(request)
+                _require_admin(perms, queue_name)
+                result = cleanup_stale_jobs(
+                    self.redis_url, queue_name, allowed_queues=perms.queues
+                )
+                return result
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.exception(
+                    "An error occurred during stale job cleanup: %s", e
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="An error occurred during stale job cleanup",
+                )
+
         @self.get("/queues", response_class=HTMLResponse)
-        async def read_queues(request: Request):
+        async def read_queues_html(request: Request, view: str = Query(None)):
             try:
                 perms = _get_permissions(request)
                 queue_data = get_job_registry_amount(
                     self.redis_url,
                     allowed_queues=perms.queues,
                 )
+
+                next_scheduled_job = None
+                if perms.allow_schedulers:
+                    try:
+                        scheduler_data = get_schedulers(
+                            self.redis_url,
+                            allowed_schedulers=perms.schedulers,
+                        )
+                        now = datetime.now(tz=timezone.utc)
+                        upcoming = [
+                            job
+                            for s in scheduler_data
+                            if not s.is_stale
+                            for job in s.jobs
+                            if job.next_enqueue_time
+                            and job.next_enqueue_time > now
+                            and queue_allowed(job.queue_name, perms.queues)
+                        ]
+                        if upcoming:
+                            next_scheduled_job = min(
+                                upcoming, key=lambda j: j.next_enqueue_time
+                            )
+                    except Exception:
+                        pass
 
                 return self.templates.TemplateResponse(
                     request,
@@ -404,6 +410,8 @@ class RedisQueueDashboard(FastAPI):
                         {
                             "queue_data": queue_data,
                             "active_tab": "queues",
+                            "view": view,
+                            "next_scheduled_job": next_scheduled_job,
                         },
                     ),
                 )
@@ -419,7 +427,7 @@ class RedisQueueDashboard(FastAPI):
                 )
 
         @self.get("/queues/json", response_model=list[QueueRegistryStats])
-        async def read_queues(request: Request):
+        async def read_queues_json(request: Request):
             try:
                 perms = _get_permissions(request)
                 queue_data = get_job_registry_amount(
@@ -437,12 +445,14 @@ class RedisQueueDashboard(FastAPI):
                 )
 
         @self.get("/jobs", response_class=HTMLResponse)
-        async def read_jobs(
+        async def read_jobs_html(
             request: Request,
             queue_name: str = Query("all"),
             state: str = Query("all"),
             page: int = Query(1),
             per_page: int = Query(10),
+            sort_by: str = Query("created_at"),
+            sort_dir: str = Query("desc"),
         ):
             try:
                 perms = _get_permissions(request)
@@ -453,6 +463,8 @@ class RedisQueueDashboard(FastAPI):
                     page=page,
                     per_page=per_page,
                     allowed_queues=perms.queues,
+                    sort_by=sort_by,
+                    sort_dir=sort_dir,
                 )
 
                 return self.templates.TemplateResponse(
@@ -480,12 +492,14 @@ class RedisQueueDashboard(FastAPI):
                 )
 
         @self.get("/jobs/json", response_model=PaginatedJobResponse)
-        async def read_jobs(
+        async def read_jobs_json(
             request: Request,
             queue_name: str = Query("all"),
             state: str = Query("all"),
             page: int = Query(1),
             per_page: int = Query(10),
+            sort_by: str = Query("created_at"),
+            sort_dir: str = Query("desc"),
         ):
             try:
                 perms = _get_permissions(request)
@@ -496,6 +510,8 @@ class RedisQueueDashboard(FastAPI):
                     page=page,
                     per_page=per_page,
                     allowed_queues=perms.queues,
+                    sort_by=sort_by,
+                    sort_dir=sort_dir,
                 )
             except HTTPException:
                 raise
