@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-04-05
+
+### Fixed
+- Jobs with a non-pickle serializer (e.g. RQ's `JSONSerializer`) caused a 500 error on the job detail page. The dashboard now falls back to JSON deserialization if the default pickle deserialization fails.
+- Jobs page pagination showed too many pages on initial load when the stored per-page preference differed from the server default (10). `totalPages` is now computed client-side from the actual per-page value, eliminating phantom pages that returned empty results.
+- Jobs sorted globally across all queues instead of per-queue — previously, sorting and pagination were applied independently per queue, producing incorrect ordering and inflated page counts when viewing all queues.
+
 ## [0.9.1] - 2026-03-24
 
 ### Added
