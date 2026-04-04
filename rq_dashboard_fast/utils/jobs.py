@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from redis import Redis
 from rq.exceptions import InvalidJobOperation
 from rq.job import Job
+from rq.serializers import JSONSerializer
 from rq.utils import as_text
 
 from .auth import queue_allowed
@@ -273,6 +274,19 @@ def get_jobs(
     )
 
 
+def _fetch_job_result(job: Job) -> Any:
+    """Fetch job result, falling back to JSON deserialization if Pickle fails."""
+    try:
+        return job.result
+    except Exception:
+        pass
+    try:
+        result = job.latest_result(serializer=JSONSerializer)
+        return result.return_value if result else None
+    except Exception:
+        return None
+
+
 def get_job(redis_url: str, job_id: str) -> JobDataDetailed:
     try:
         redis = Redis.from_url(redis_url)
@@ -285,7 +299,7 @@ def get_job(redis_url: str, job_id: str) -> JobDataDetailed:
             created_at=job.created_at,
             enqueued_at=job.enqueued_at,
             ended_at=job.ended_at,
-            result=job.result,
+            result=_fetch_job_result(job),
             exc_info=job.exc_info,
             meta=job.meta,
             origin=job.origin,
