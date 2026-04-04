@@ -101,141 +101,91 @@ def get_job_registrys(
     try:
         redis = Redis.from_url(redis_url)
         queues = get_queues(redis_url)
-        result = []
-        total = 0
 
-        start_index = (page - 1) * per_page
-        end_index = start_index + per_page
+        desc = sort_dir == "desc"
 
+        # Phase 1: collect all IDs across all matching queues globally
+        all_ids: list[str] = []
         for queue in queues:
             if allowed_queues and not queue_allowed(queue.name, allowed_queues):
                 continue
-            if queue_name == "all" or queue_name == queue.name:
-                job_ids = []
+            if queue_name != "all" and queue_name != queue.name:
+                continue
 
-                desc = sort_dir == "desc"
+            if state == "all":
+                ids = []
+                ids.extend(queue.get_job_ids())
+                ids.extend(queue.finished_job_registry.get_job_ids())
+                ids.extend(queue.failed_job_registry.get_job_ids())
+                ids.extend(queue.started_job_registry.get_job_ids())
+                ids.extend(queue.deferred_job_registry.get_job_ids())
+                ids.extend(queue.scheduled_job_registry.get_job_ids())
+                ids.extend(queue.canceled_job_registry.get_job_ids())
+                all_ids.extend(_filter_valid_job_ids(ids, redis))
+            elif state == "scheduled":
+                all_ids.extend(_filter_valid_job_ids(queue.scheduled_job_registry.get_job_ids(), redis))
+            elif state == "queued":
+                all_ids.extend([as_text(jid) for jid in redis.lrange(queue.key, 0, -1)])
+            elif state == "finished":
+                all_ids.extend(_filter_valid_job_ids(queue.finished_job_registry.get_job_ids(), redis))
+            elif state == "failed":
+                all_ids.extend(_filter_valid_job_ids(queue.failed_job_registry.get_job_ids(), redis))
+            elif state == "started":
+                all_ids.extend(_filter_valid_job_ids(queue.started_job_registry.get_job_ids(), redis))
+            elif state == "deferred":
+                all_ids.extend(_filter_valid_job_ids(queue.deferred_job_registry.get_job_ids(), redis))
+            elif state == "canceled":
+                all_ids.extend(_filter_valid_job_ids(queue.canceled_job_registry.get_job_ids(), redis))
+            elif state == "stopped":
+                # Stopped jobs live in started_job_registry with status "stopped".
+                # Filter them from the started registry by checking actual status.
+                for jid in Job.fetch_many(queue.started_job_registry.get_job_ids(), connection=redis):
+                    if jid is not None and jid.get_status() == "stopped":
+                        all_ids.append(jid.id)
 
-                if state == "all":
-                    all_ids = []
-                    all_ids.extend(queue.get_job_ids())
-                    all_ids.extend(queue.finished_job_registry.get_job_ids())
-                    all_ids.extend(queue.failed_job_registry.get_job_ids())
-                    all_ids.extend(queue.started_job_registry.get_job_ids())
-                    all_ids.extend(queue.deferred_job_registry.get_job_ids())
-                    all_ids.extend(queue.scheduled_job_registry.get_job_ids())
-                    all_ids.extend(queue.canceled_job_registry.get_job_ids())
-                    valid_ids = _filter_valid_job_ids(all_ids, redis)
-                    total += len(valid_ids)
-                    sorted_ids = _sort_ids_by_created_at(valid_ids, redis, desc=desc)
-                    job_ids = sorted_ids[start_index:end_index]
-                elif state == "scheduled":
-                    all_ids = queue.scheduled_job_registry.get_job_ids()
-                    valid_ids = _filter_valid_job_ids(all_ids, redis)
-                    total += len(valid_ids)
-                    sorted_ids = _sort_ids_by_created_at(valid_ids, redis, desc=desc)
-                    job_ids = sorted_ids[start_index:end_index]
-                elif state == "queued":
-                    all_ids = [as_text(jid) for jid in redis.lrange(queue.key, 0, -1)]
-                    total += len(all_ids)
-                    sorted_ids = _sort_ids_by_created_at(all_ids, redis, desc=desc)
-                    job_ids = sorted_ids[start_index:end_index]
-                elif state == "finished":
-                    all_ids = queue.finished_job_registry.get_job_ids()
-                    valid_ids = _filter_valid_job_ids(all_ids, redis)
-                    total += len(valid_ids)
-                    sorted_ids = _sort_ids_by_created_at(valid_ids, redis, desc=desc)
-                    job_ids = sorted_ids[start_index:end_index]
-                elif state == "failed":
-                    all_ids = queue.failed_job_registry.get_job_ids()
-                    valid_ids = _filter_valid_job_ids(all_ids, redis)
-                    total += len(valid_ids)
-                    sorted_ids = _sort_ids_by_created_at(valid_ids, redis, desc=desc)
-                    job_ids = sorted_ids[start_index:end_index]
-                elif state == "started":
-                    all_ids = queue.started_job_registry.get_job_ids()
-                    valid_ids = _filter_valid_job_ids(all_ids, redis)
-                    total += len(valid_ids)
-                    sorted_ids = _sort_ids_by_created_at(valid_ids, redis, desc=desc)
-                    job_ids = sorted_ids[start_index:end_index]
-                elif state == "deferred":
-                    all_ids = queue.deferred_job_registry.get_job_ids()
-                    valid_ids = _filter_valid_job_ids(all_ids, redis)
-                    total += len(valid_ids)
-                    sorted_ids = _sort_ids_by_created_at(valid_ids, redis, desc=desc)
-                    job_ids = sorted_ids[start_index:end_index]
-                elif state == "canceled":
-                    all_ids = queue.canceled_job_registry.get_job_ids()
-                    valid_ids = _filter_valid_job_ids(all_ids, redis)
-                    total += len(valid_ids)
-                    sorted_ids = _sort_ids_by_created_at(valid_ids, redis, desc=desc)
-                    job_ids = sorted_ids[start_index:end_index]
-                elif state == "stopped":
-                    # Stopped jobs live in started_job_registry with status "stopped".
-                    # Filter them from the started registry by checking actual status.
-                    all_started_ids = queue.started_job_registry.get_job_ids()
-                    stopped_ids = []
-                    for jid in Job.fetch_many(all_started_ids, connection=redis):
-                        if jid is not None and jid.get_status() == "stopped":
-                            stopped_ids.append(jid.id)
-                    total += len(stopped_ids)
-                    sorted_ids = _sort_ids_by_created_at(stopped_ids, redis, desc=desc)
-                    job_ids = sorted_ids[start_index:end_index]
+        total = len(all_ids)
 
-                jobs_fetched = Job.fetch_many(job_ids, connection=redis)
-                started_jobs = []
-                failed_jobs = []
-                deferred_jobs = []
-                finished_jobs = []
-                queued_jobs = []
-                scheduled_jobs = []
-                canceled_jobs = []
-                stopped_jobs = []
+        # Phase 2: global sort and single page slice
+        start_index = (page - 1) * per_page
+        end_index = start_index + per_page
+        page_ids = _sort_ids_by_created_at(all_ids, redis, desc=desc)[start_index:end_index]
 
-                jobs = jobs_fetched
-                for job in jobs:
-                    if job is None:
-                        continue
-                    try:
-                        status = job.get_status()
-                    except InvalidJobOperation:
-                        logger.warning("Skipping job %s: status no longer available in Redis", job.id)
-                        continue
-                    job_data_item = JobData(
-                        id=job.id,
-                        name=job.description,
-                        created_at=job.created_at,
-                        ended_at=job.ended_at,
-                    )
-                    if status == "started":
-                        started_jobs.append(job_data_item)
-                    elif status == "failed":
-                        failed_jobs.append(job_data_item)
-                    elif status == "deferred":
-                        deferred_jobs.append(job_data_item)
-                    elif status == "finished":
-                        finished_jobs.append(job_data_item)
-                    elif status == "queued":
-                        queued_jobs.append(job_data_item)
-                    elif status == "scheduled":
-                        scheduled_jobs.append(job_data_item)
-                    elif status == "canceled":
-                        canceled_jobs.append(job_data_item)
-                    elif status == "stopped":
-                        stopped_jobs.append(job_data_item)
+        # Phase 3: fetch page jobs and group by queue for the response structure
+        queue_data: dict[str, dict] = {}
+        for job in Job.fetch_many(page_ids, connection=redis):
+            if job is None:
+                continue
+            try:
+                status = job.get_status()
+            except InvalidJobOperation:
+                logger.warning("Skipping job %s: status no longer available in Redis", job.id)
+                continue
+            qname = job.origin or "unknown"
+            if qname not in queue_data:
+                queue_data[qname] = {s: [] for s in ("started", "failed", "deferred", "finished", "queued", "scheduled", "canceled", "stopped")}
+            job_data_item = JobData(
+                id=job.id,
+                name=job.description,
+                created_at=job.created_at,
+                ended_at=job.ended_at,
+            )
+            if status in queue_data[qname]:
+                queue_data[qname][status].append(job_data_item)
 
-                result.append(
-                    QueueJobRegistryStats(
-                        queue_name=queue.name,
-                        scheduled=scheduled_jobs,
-                        queued=queued_jobs,
-                        started=started_jobs,
-                        failed=failed_jobs,
-                        deferred=deferred_jobs,
-                        finished=finished_jobs,
-                        canceled=canceled_jobs,
-                        stopped=stopped_jobs,
-                    )
-                )
+        result = [
+            QueueJobRegistryStats(
+                queue_name=qname,
+                scheduled=data["scheduled"],
+                queued=data["queued"],
+                started=data["started"],
+                failed=data["failed"],
+                deferred=data["deferred"],
+                finished=data["finished"],
+                canceled=data["canceled"],
+                stopped=data["stopped"],
+            )
+            for qname, data in queue_data.items()
+        ]
 
         total_pages = max(1, (total + per_page - 1) // per_page)
         return PaginatedJobResponse(
