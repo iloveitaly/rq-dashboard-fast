@@ -43,8 +43,8 @@
 
   let page = 1;
   let perPage = parseInt(localStorage.getItem('jobs_per_page')) || {{ per_page if per_page is defined else 10 }};
-  let totalPages = {{ total_pages }};
   let totalJobs = {{ total }};
+  let totalPages = Math.max(1, Math.ceil(totalJobs / perPage));
 
   let sortCol = 'created_at';
   let sortDir = 'desc';
