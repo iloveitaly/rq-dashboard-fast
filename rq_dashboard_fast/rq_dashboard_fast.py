@@ -30,10 +30,6 @@ from rq_dashboard_fast.utils.auth import (
     queue_allowed,
     worker_visible,
 )
-from rq_dashboard_fast.utils.schedulers import (
-    SchedulerData,
-    get_schedulers,
-)
 from rq_dashboard_fast.utils.jobs import (
     JobDataDetailed,
     PaginatedJobResponse,
@@ -53,6 +49,7 @@ from rq_dashboard_fast.utils.queues import (
     delete_jobs_for_queue,
     get_job_registry_amount,
 )
+from rq_dashboard_fast.utils.schedulers import SchedulerData, get_schedulers
 from rq_dashboard_fast.utils.workers import (
     WorkerData,
     convert_worker_data_to_json_dict,
@@ -97,7 +94,7 @@ class RedisQueueDashboard(FastAPI):
         self.protocol = protocol
         self.auth = AuthConfig(auth_config)
 
-        self.rq_dashboard_version = "0.9.1"
+        self.rq_dashboard_version = "0.9.2"
 
         logger = logging.getLogger(__name__)
 
@@ -361,9 +358,7 @@ class RedisQueueDashboard(FastAPI):
             except HTTPException:
                 raise
             except Exception as e:
-                logger.exception(
-                    "An error occurred during stale job cleanup: %s", e
-                )
+                logger.exception("An error occurred during stale job cleanup: %s", e)
                 raise HTTPException(
                     status_code=500,
                     detail="An error occurred during stale job cleanup",
